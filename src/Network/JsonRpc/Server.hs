@@ -19,7 +19,9 @@ module Network.JsonRpc.Server (
                            , Method
                            , toMethod
                            , call
+                           , callAsValue
                            , callWithBatchStrategy
+                           , callWithBatchStrategyAsValue
                            , Parameter(..)
                            , (:+:) (..)
                            , MethodParams
@@ -69,9 +71,9 @@ import Control.Applicative ((<$>))
 -- access to an 'MVar' counter.  The program reads requests from
 -- stdin and writes responses to stdout. Compile it with the build
 -- flag @demo@.
---   
+--
 -- > <insert Demo.hs>
---   
+--
 
 -- | Creates a method from a name, function, and parameter descriptions.
 --   The parameter names must be unique.
@@ -97,16 +99,27 @@ call :: Monad m => [Method m]  -- ^ Choice of methods to call.
                                --   all wrapped in the given monad.
 call = callWithBatchStrategy sequence
 
--- | Handles one JSON-RPC request. The method names must be unique.
-callWithBatchStrategy :: Monad m =>
-                         (forall a . NFData a => [m a] -> m [a]) -- ^ Function specifying the
-                                                                 --   evaluation strategy.
-                      -> [Method m]                              -- ^ Choice of methods to call.
-                      -> B.ByteString                            -- ^ JSON-RPC request.
-                      -> m (Maybe B.ByteString)                  -- ^ The response wrapped in 'Just', or
-                                                                 --   'Nothing' in the case of a notification,
-                                                                 --   all wrapped in the given monad.
-callWithBatchStrategy strategy methods =
+-- | Handles one JSON-RPC request. It is the same as
+--   @callWithBatchStrategyAsValue sequence@.
+callAsValue :: Monad m => [Method m]  -- ^ Choice of methods to call.
+            -> B.ByteString           -- ^ JSON-RPC request.
+            -> m (Maybe A.Value)      -- ^ The JSON value wrapped in 'Just', or
+                                      --   'Nothing' in the case of a notification,
+                                      --   all wrapped in the given monad.
+callAsValue = callWithBatchStrategyAsValue sequence
+
+
+
+-- | Handles one JSON-RPC request and return JSON value for further processing.
+callWithBatchStrategyAsValue  :: Monad m =>
+                                (forall a . NFData a => [m a] -> m [a]) -- ^ Function specifying the
+                                                                        --   evaluation strategy.
+                              -> [Method m]                             -- ^ Choice of methods to call.
+                              -> B.ByteString                           -- ^ JSON-RPC request.
+                              -> m (Maybe A.Value)                      -- ^ The JSON value wrapped in 'Just', or
+                                                                        --   'Nothing' in the case of a notification,
+                                                                        --   all wrapped in the given monad.
+callWithBatchStrategyAsValue strategy methods =
     mthMap `seq` either returnErr callMethod . parse
   where
     mthMap = H.fromList $
@@ -122,12 +135,24 @@ callWithBatchStrategy strategy methods =
           _ -> throwInvalidRpc "Not a JSON object or array"
     callMethod rq =
         case rq of
-          Left val -> encodeJust `liftM` singleCall mthMap val
-          Right vals -> encodeJust `liftM` batchCall strategy mthMap vals
+          Left val -> toJsonJust `liftM` singleCall mthMap val
+          Right vals -> toJsonJust `liftM` batchCall strategy mthMap vals
       where
-        encodeJust r = A.encode <$> r
-    returnErr = return . Just . A.encode . nullIdResponse
+        toJsonJust r = A.toJSON <$> r
+    returnErr = return . Just . A.toJSON . nullIdResponse
     invalidJson = throwError $ rpcError (-32700) "Invalid JSON"
+
+-- | Handles one JSON-RPC request. The method names must be unique.
+callWithBatchStrategy :: Monad m =>
+                         (forall a . NFData a => [m a] -> m [a]) -- ^ Function specifying the
+                                                                 --   evaluation strategy.
+                      -> [Method m]                              -- ^ Choice of methods to call.
+                      -> B.ByteString                            -- ^ JSON-RPC request.
+                      -> m (Maybe B.ByteString)                  -- ^ The response wrapped in 'Just', or
+                                                                 --   'Nothing' in the case of a notification,
+                                                                 --   all wrapped in the given monad.
+callWithBatchStrategy strategy methods =
+  fmap (A.encode <$>) . callWithBatchStrategyAsValue strategy methods
 
 singleCall :: Monad m => MethodMap m -> A.Value -> m (Maybe Response)
 singleCall methods val = case parsed of
