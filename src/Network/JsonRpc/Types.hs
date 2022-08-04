@@ -25,12 +25,13 @@ import qualified Data.Aeson as A
 import Data.Aeson ((.=), (.:), (.:?), (.!=))
 import Data.Aeson.Types (emptyObject)
 import qualified Data.Vector as V
-import qualified Data.HashMap.Strict as H
 import Control.DeepSeq (NFData, rnf)
 import Control.Monad (when)
 import Control.Monad.Except (ExceptT (..), throwError)
 import Prelude hiding (length)
 import Control.Applicative ((<|>), empty)
+import qualified Data.Aeson.Key as K
+import qualified Data.Aeson.KeyMap as K
 
 #if !MIN_VERSION_base(4,8,0)
 import Control.Applicative ((<$>), (<*>), (*>))
@@ -68,7 +69,7 @@ instance (A.FromJSON a, MethodParams f p m r) => MethodParams (a -> f) (a :+: p)
         ExceptT (return arg) >>= \a -> _apply (f a) ps nextArgs
       where
         arg = maybe (paramDefault param) (parseArg name) lookupValue
-        lookupValue = either (H.lookup name) (V.!? 0) args
+        lookupValue = either (K.lookup (K.fromText name)) (V.!? 0) args
         nextArgs = V.drop 1 <$> args
         name = paramName param
 
@@ -106,7 +107,7 @@ instance A.FromJSON Request where
               parseParams (A.Array ar) = return $ Right ar
               parseParams _ = empty
               checkVersion ver = when (ver /= jsonRpcVersion) $
-                            fail $ "Wrong JSON-RPC version: " ++ unpack ver
+                            fail $ "Wrong JSON-RPC version: " ++ unpack (K.toText ver)
                -- (.:?) parses Null value as Nothing so parseId needs
                -- to use both (.:?) and (.:) to handle all cases
               parseId = x .:? idKey >>= \optional ->
@@ -180,7 +181,7 @@ rpcError code msg = RpcError code msg Nothing
 rpcErrorWithData :: A.ToJSON a => Int -> Text -> a -> RpcError
 rpcErrorWithData code msg errorData = RpcError code msg $ Just $ A.toJSON errorData
 
-jsonRpcVersion, versionKey, idKey :: Text
+jsonRpcVersion, versionKey, idKey :: A.Key
 jsonRpcVersion = "2.0"
 versionKey = "jsonrpc"
 idKey = "id"
