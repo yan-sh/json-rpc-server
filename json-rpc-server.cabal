@@ -41,7 +41,7 @@ library
                        aeson >=0.6 && <2.2,
                        deepseq >= 1.1 && <1.5,
                        bytestring >=0.9,
-                       mtl >=2.2.1 && <2.3,
+                       mtl >=2.2.1,
                        text >=0.11,
                        vector >=0.7.1 && <0.14,
                        unordered-containers >=0.1 && <0.3
